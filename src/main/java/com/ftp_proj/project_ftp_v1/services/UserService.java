@@ -21,11 +21,15 @@ public class UserService {
         //1. validation
         if (!userRepository.existsById(user.getUsername())) {
             //2. send user to repository DB
-            userRepository.insert(user);
+            userRepository.save(user);
             return true;
         }
         
         return false;
+    }
+
+    public User loginUser(String email, String password) {
+        return userRepository.findOneByEmailAndPassword(email, password);
     }
 
     public ArrayList<User> getAllUsers() {

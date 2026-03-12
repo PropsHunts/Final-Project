@@ -13,6 +13,7 @@ public interface UserRepository extends MongoRepository<User, String> {
     public List<User> findByUsernameLike(String name);
     public List<User> findByUsername(String name);
     public User findOneByUsernameAndPassword(String un, String pw);
+    public User findOneByEmailAndPassword(String email, String password);
     
 
     /*

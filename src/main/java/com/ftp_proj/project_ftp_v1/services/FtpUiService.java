@@ -1,149 +1,122 @@
 package com.ftp_proj.project_ftp_v1.services;
 
 import com.ftp_proj.project_ftp_v1.utils.Lz78Utils;
-import org.apache.commons.net.PrintCommandListener; // לוגים
 import org.apache.commons.net.ftp.FTP;
 import org.apache.commons.net.ftp.FTPClient;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-
 import java.io.*;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
 @Service
 public class FtpUiService {
-
     private static final String SERVER = "127.0.0.1";
     private static final int PORT = 2121;
     private static final String USER = "admin";
     private static final String PASS = "12345";
     private static final String STORAGE_PATH = "storage/";
 
-    // פונקציית עזר להגדרת לקוח עם לוגים וקידוד נכון
     private FTPClient createClient() throws IOException {
-        FTPClient ftpClient = new FTPClient();
-        
-        // 1. הוספת מאזין שמדפיס הכל לקונסול (Log)
-        ftpClient.addProtocolCommandListener(new PrintCommandListener(new PrintWriter(System.out), true));
-        
-        // 2. הגדרת קידוד לעברית
-        ftpClient.setControlEncoding("UTF-8");
-
-        ftpClient.connect(SERVER, PORT);
-        ftpClient.login(USER, PASS);
-        ftpClient.enterLocalPassiveMode();
-        ftpClient.setFileType(FTP.BINARY_FILE_TYPE);
-        
-        return ftpClient;
+        FTPClient ftp = new FTPClient();
+        ftp.setControlEncoding("UTF-8");
+        ftp.connect(SERVER, PORT);
+        ftp.login(USER, PASS);
+        ftp.enterLocalPassiveMode();
+        ftp.setFileType(FTP.BINARY_FILE_TYPE);
+        return ftp;
     }
 
-    public boolean doesFileExist(String filename) {
-        FTPClient ftpClient = new FTPClient();
+    public boolean doesFileExist(String email, String filename) {
         boolean exists = false;
         try {
-            ftpClient = createClient(); // שימוש בפונקציית העזר
-            String remoteName = filename.endsWith(".lz78") ? filename : filename + ".lz78";
-            String[] names = ftpClient.listNames(remoteName);
+            FTPClient ftp = createClient();
+            String name = filename.endsWith(".lz78") ? filename : filename + ".lz78";
+            String[] names = ftp.listNames(email + "/" + name);
             exists = (names != null && names.length > 0);
-            ftpClient.disconnect();
-        } catch (IOException e) {
-            e.printStackTrace();
+            ftp.disconnect();
+        } catch (Exception e) {
         }
         return exists;
     }
 
     @Async
-    public CompletableFuture<Boolean> uploadFileResumable(String filename, InputStream inputStream, long totalSize) {
+    public CompletableFuture<Boolean> uploadFileResumable(String email, String filename, InputStream inputStream) {
         return CompletableFuture.supplyAsync(() -> {
-            FTPClient ftpClient = new FTPClient();
-            File tempCompressedFile = null;
-
+            File temp = null;
+            FTPClient ftp = null;
             try {
-                // דחיסה לקובץ זמני
-                tempCompressedFile = File.createTempFile("upload_", ".lz78");
-                try (FileOutputStream fos = new FileOutputStream(tempCompressedFile)) {
+                temp = File.createTempFile("up_", ".lz78");
+                try (FileOutputStream fos = new FileOutputStream(temp)) {
                     Lz78Utils.compress(inputStream, fos);
                 }
 
-                String remoteName = filename.endsWith(".lz78") ? filename : filename + ".lz78";
-                
-                ftpClient = createClient(); // חיבור עם לוגים ו-UTF8
-
-                // *** כאן השינוי הגדול: שימוש בזרם ידני במקום storeFile אוטומטי ***
-                try (InputStream fileIn = new FileInputStream(tempCompressedFile);
-                     OutputStream ftpOut = ftpClient.storeFileStream(remoteName)) { // פותח צינור לכתיבה
-                    
-                    if (ftpOut == null) {
-                        System.err.println("Failed to open output stream from FTP server.");
-                        return false;
-                    }
-
-                    // העתקה ידנית בבלוקים (Buffer)
-                    byte[] buffer = new byte[4096];
-                    int bytesRead;
-                    while ((bytesRead = fileIn.read(buffer)) != -1) {
-                        ftpOut.write(buffer, 0, bytesRead);
-                        ftpOut.flush(); // וידוא שליחה
+                ftp = createClient();
+                String remoteName = email + "/" + filename;
+                try (InputStream in = new FileInputStream(temp); OutputStream out = ftp.storeFileStream(remoteName)) {
+                    if (out != null) {
+                        byte[] buffer = new byte[8192];
+                        int read;
+                        while ((read = in.read(buffer)) != -1) {
+                            out.write(buffer, 0, read);
+                            out.flush();
+                        }
                     }
                 }
-
-                // חובה לקרוא לפקודה הזו כשמסיימים לעבוד עם Stream ב-commons-net
-                return ftpClient.completePendingCommand();
-
+                return ftp.completePendingCommand();
             } catch (Exception e) {
-                e.printStackTrace();
                 return false;
             } finally {
-                try { if (ftpClient.isConnected()) ftpClient.disconnect(); } catch (Exception e) {}
-                if (tempCompressedFile != null) tempCompressedFile.delete();
+                try {
+                    if (ftp != null)
+                        ftp.disconnect();
+                } catch (Exception e) {
+                }
+                if (temp != null)
+                    temp.delete();
             }
         });
     }
 
-    public void downloadFileFromFtp(String remoteFilename, OutputStream browserStream) {
-        FTPClient ftpClient = new FTPClient();
+    public void downloadFileFromFtp(String email, String filename, OutputStream browserStream) {
         try {
-            ftpClient = createClient(); // חיבור עם לוגים ו-UTF8
-
-            // גם בהורדה - שימוש בזרם ידני
-            try (InputStream ftpStream = ftpClient.retrieveFileStream(remoteFilename)) {
-                if (ftpStream != null) {
-                    // כאן ה-Lz78Utils כבר עושה את הקריאה בבלוקים
-                    Lz78Utils.decompress(ftpStream, browserStream);
-                }
+            FTPClient ftp = createClient();
+            try (InputStream in = ftp.retrieveFileStream(email + "/" + filename)) {
+                if (in != null)
+                    Lz78Utils.decompress(in, browserStream);
             }
-            ftpClient.completePendingCommand();
-            ftpClient.disconnect();
-        } catch (IOException ex) {
-            System.out.println("Download interrupted: " + ex.getMessage());
+            ftp.completePendingCommand();
+            ftp.disconnect();
+        } catch (Exception e) {
         }
     }
-    
-    // getUploadedFiles נשאר אותו דבר...
-    public List<UploadedFileDTO> getUploadedFiles() {
-        List<UploadedFileDTO> filesList = new ArrayList<>();
-        File folder = new File(STORAGE_PATH);
-        if (!folder.exists()) folder.mkdirs();
 
+    public List<UploadedFileDTO> getUploadedFiles(String email) {
+        List<UploadedFileDTO> list = new ArrayList<>();
+
+        // התיקון: פסיק במקום פלוס. Java כבר תדאג לשים סלאש באמצע בצורה תקנית
+        File folder = new File(STORAGE_PATH, email);
+
+        if (!folder.exists())
+            folder.mkdirs();
         File[] files = folder.listFiles();
         if (files != null) {
-            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
-            for (File file : files) {
+            DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
+            for (File f : files) {
                 try {
-                    BasicFileAttributes attr = Files.readAttributes(file.toPath(), BasicFileAttributes.class);
-                    LocalDateTime date = LocalDateTime.ofInstant(attr.creationTime().toInstant(), ZoneId.systemDefault());
-                    filesList.add(new UploadedFileDTO(file.getName(), file.length()/1024+" KB", "", date.format(formatter)));
-                } catch (IOException e) {}
+                    BasicFileAttributes attr = Files.readAttributes(f.toPath(), BasicFileAttributes.class);
+                    LocalDateTime date = LocalDateTime.ofInstant(attr.creationTime().toInstant(),
+                            ZoneId.systemDefault());
+                    list.add(new UploadedFileDTO(f.getName(), f.length() / 1024 + " KB", "", date.format(fmt)));
+                } catch (Exception e) {
+                }
             }
         }
-        return filesList;
+        return list;
     }
 }
