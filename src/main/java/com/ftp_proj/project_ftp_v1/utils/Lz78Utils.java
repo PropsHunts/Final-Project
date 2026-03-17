@@ -4,10 +4,8 @@ import java.io.*;
 import java.util.*;
 
 public class Lz78Utils {
-    // באפר גדול להאצת קריאה/כתיבה של קבצים ענקיים
     private static final int BUFFER_SIZE = 256 * 1024; // 256KB
     
-    // גודל מילון אופטימלי: שומר על יחס דחיסה מעולה וצורך רק כ-20MB של RAM
     private static final int MAX_DICT_SIZE = 500000;
 
     private static class Node {
@@ -39,11 +37,9 @@ public class Lz78Utils {
                 dataOut.writeBoolean(true);
                 dataOut.writeByte(b);
 
-                // סנכרון מילון: מוסיפים רק אם יש מקום
                 if (dictSize < MAX_DICT_SIZE) {
                     current.children.put(b, new Node(dictSize++));
                 } else {
-                    // המילון מלא - מאפסים אותו בשקט ומתחילים מחדש!
                     root = new Node(0);
                     dictSize = 1;
                 }
@@ -85,7 +81,6 @@ public class Lz78Utils {
 
                     dataOut.write(entry);
 
-                    // סנכרון מילון: זהה לחלוטין ללוגיקה של ה-compress!
                     if (dict.size() < MAX_DICT_SIZE) {
                         dict.add(entry);
                     } else {
