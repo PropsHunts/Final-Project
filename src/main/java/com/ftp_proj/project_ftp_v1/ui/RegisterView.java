@@ -9,7 +9,7 @@ import com.vaadin.flow.router.Route;
 import com.ftp_proj.project_ftp_v1.datamodels.User;
 import com.ftp_proj.project_ftp_v1.services.UserService;
 
-@Route("register")
+@Route(value = "register", layout = AppNavbarLayout.class)
 public class RegisterView extends VerticalLayout {
     public RegisterView(UserService userService) {
         setSizeFull(); setAlignItems(Alignment.CENTER); setJustifyContentMode(JustifyContentMode.CENTER);
@@ -24,6 +24,6 @@ public class RegisterView extends VerticalLayout {
             } else { Notification.show("אימייל קיים במערכת!"); }
         });
 
-        add(new H1("הרשמה"), email, user, pass, regBtn, new Button("חזור ללוגין", e -> UI.getCurrent().navigate(LoginView.class)));
+        add(new H1("הרשמה"), email, user, pass, regBtn, new Button("חזור לכניסה", e -> UI.getCurrent().navigate(LoginView.class)));
     }
 }
