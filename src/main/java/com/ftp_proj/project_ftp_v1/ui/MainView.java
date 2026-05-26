@@ -10,9 +10,9 @@ import com.vaadin.flow.component.orderedlayout.*;
 import com.vaadin.flow.router.Route;
 
 @Route(value = "", layout = AppNavbarLayout.class)
-public class StartView extends VerticalLayout {
+public class MainView extends VerticalLayout {
 
-    public StartView() {
+    public MainView() {
         // הגדרות רקע ופריסה כללית של הדף
         setSizeFull(); 
         setAlignItems(Alignment.CENTER); 
@@ -36,7 +36,7 @@ public class StartView extends VerticalLayout {
         logo.getStyle().set("margin-bottom", "15px");
 
         // כותרת ותת-כותרת
-        H1 title = new H1("Cloud FTP Server");
+        H1 title = new H1("ברוכים הבאים לאתר אחסון ענן המבוסס על שרת FTP");
         title.getStyle().set("margin-top", "0").set("color", "#1f2937");
 
         Paragraph subtitle = new Paragraph("FTP Server + LZ78");
@@ -61,20 +61,8 @@ public class StartView extends VerticalLayout {
             // createFeatureItem(VaadinIcon.ROCKET, "אחסון ענן עד ל7GB בכל העלאה")
         );
 
-        // --- כפתורים ---
-        Button loginBtn = new Button("התחברות", VaadinIcon.SIGN_IN.create(), e -> UI.getCurrent().navigate(LoginView.class));
-        loginBtn.addThemeVariants(ButtonVariant.LUMO_PRIMARY, ButtonVariant.LUMO_LARGE);
-
-        Button regBtn = new Button("הרשמה", VaadinIcon.USER.create(), e -> UI.getCurrent().navigate(RegisterView.class));
-        regBtn.addThemeVariants(ButtonVariant.LUMO_CONTRAST, ButtonVariant.LUMO_LARGE); 
-        
-        HorizontalLayout buttons = new HorizontalLayout(loginBtn, regBtn);
-        buttons.setJustifyContentMode(JustifyContentMode.CENTER);
-        buttons.getStyle().set("direction", "rtl"); // כדי שכפתור ההתחברות יהיה מימין
-        buttons.setWidthFull();
-
         // הרכבת הכל
-        card.add(logo, title, subtitle, featuresList, buttons);
+        card.add(logo, title, subtitle, featuresList);
         add(card);
     }
 

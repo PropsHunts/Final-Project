@@ -3,15 +3,20 @@ package com.ftp_proj.project_ftp_v1.ui;
 import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.applayout.AppLayout;
 import com.vaadin.flow.component.avatar.Avatar;
-import com.vaadin.flow.component.contextmenu.MenuItem;
+import com.vaadin.flow.component.button.Button;
+import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.html.H1;
 import com.vaadin.flow.component.html.Image;
-import com.vaadin.flow.component.menubar.MenuBar;
+import com.vaadin.flow.component.html.Span;
+import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.router.RouterLink;
-
+import com.vaadin.flow.server.VaadinService;
+import com.vaadin.flow.server.VaadinSession;
 import com.ftp_proj.project_ftp_v1.datamodels.User;
+import com.ftp_proj.project_ftp_v1.services.FtpUiService;
+import com.ftp_proj.project_ftp_v1.services.UserService;
 import com.ftp_proj.project_ftp_v1.utils.RouteHelper;
 import com.ftp_proj.project_ftp_v1.utils.SessionHelper;
 
@@ -34,11 +39,12 @@ public class AppNavbarLayout extends AppLayout {
                 .set("margin", "0");
 
         navigationContainer.setMargin(true);
+        navigationContainer.setSpacing(true);
 
         HorizontalLayout header = new HorizontalLayout();
         header.add(logo, title, navigationContainer);
 
-        header.addAndExpand(new HorizontalLayout());
+        header.addAndExpand(new HorizontalLayout()); // דוחף את החלק הימני לקצה
         header.add(rightSectionContainer);
 
         header.setDefaultVerticalComponentAlignment(FlexComponent.Alignment.CENTER);
@@ -62,33 +68,48 @@ public class AppNavbarLayout extends AppLayout {
     public void refreshNavbarContent() {
         navigationContainer.removeAll();
         rightSectionContainer.removeAll();
+        
+        rightSectionContainer.setAlignItems(FlexComponent.Alignment.CENTER);
+        rightSectionContainer.setSpacing(true);
 
         User currentUser = (User) SessionHelper.getAttribute("loggedInUser");
 
+        // יצירת אלמנטים משותפים (עיגול וטקסט)
         Avatar userAvatar = new Avatar();
-        MenuBar menuBar = new MenuBar();
-        menuBar.getStyle().set("background", "transparent");
-
-        MenuItem userMenu = menuBar.addItem(userAvatar);
+        Span greeting = new Span();
+        greeting.getStyle().set("font-weight", "bold").set("margin-right", "15px");
 
         if (currentUser != null) {
-            userAvatar.setName(currentUser.getUsername());
+            // --- משתמש מחובר ---
+            userAvatar.setName(currentUser.getUsername()); // יציג ראשי תיבות של שם המשתמש
+            greeting.setText("Hello, " + currentUser.getUsername());
+            
+            navigationContainer.add(new RouterLink("Main", MainView.class));
+            navigationContainer.add(new RouterLink("My Cloud", HomeView.class));
 
-            userMenu.getSubMenu().addItem("Profile", e -> {
-                profile();
-            });
-            userMenu.getSubMenu().addItem("Logout", e -> logOut());
+            Button profileBtn = new Button("Profile", e -> profile());
+            
+            Button logoutBtn = new Button("Logout", e -> logOut());
+            logoutBtn.addThemeVariants(ButtonVariant.LUMO_ERROR);
 
-            navigationContainer.add(new RouterLink("Home", HomeView.class));
+            // מוסיפים משמאל לימין: עיגול, טקסט, פרופיל, התנתקות
+            rightSectionContainer.add(userAvatar, greeting, profileBtn, logoutBtn);
+            
         } else {
-            userAvatar.setName("Guest");
+            // --- משתמש אורח (Guest) ---
+            userAvatar.setName("Guest"); // יציג 'G' בעיגול
+            greeting.setText("Hello, Guest");
+            
+            navigationContainer.add(new RouterLink("Home", MainView.class));
 
-            userMenu.getSubMenu().addItem("Login", e -> UI.getCurrent().navigate(LoginView.class));
+            Button loginBtn = new Button("Login", e -> UI.getCurrent().navigate(LoginView.class));
+            loginBtn.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+            
+            Button registerBtn = new Button("Register", e -> UI.getCurrent().navigate(RegisterView.class));
 
-            navigationContainer.add(new RouterLink("Home", StartView.class));
+            // מוסיפים משמאל לימין: עיגול, טקסט, התחברות, הרשמה
+            rightSectionContainer.add(userAvatar, greeting, loginBtn, registerBtn);
         }
-
-        rightSectionContainer.add(menuBar);
     }
 
     /**
@@ -109,27 +130,23 @@ public class AppNavbarLayout extends AppLayout {
 
         String originalEmail = currentUser.getEmail();
 
-        // דרך נקייה ופשוטה של Vaadin לשלוף Beans מתוך Spring Context
-        var context = com.vaadin.flow.server.VaadinService.getCurrent().getInstantiator()
-                .getOrCreate(com.ftp_proj.project_ftp_v1.services.UserService.class);
-        var ftpService = com.vaadin.flow.server.VaadinService.getCurrent().getInstantiator()
-                .getOrCreate(com.ftp_proj.project_ftp_v1.services.FtpUiService.class);
+        UserService userService = VaadinService.getCurrent().getInstantiator()
+                .getOrCreate(UserService.class);
+        
+        FtpUiService ftpService = VaadinService.getCurrent().getInstantiator()
+                .getOrCreate(FtpUiService.class);
 
-        // פתיחת הדיאלוג בצורה נקייה עם ה-Callback
-        ProfileDialog profileDialog = new ProfileDialog(context, ftpService, () -> {
+        ProfileDialog profileDialog = new ProfileDialog(userService, ftpService, () -> {
             User updatedUser = (User) SessionHelper.getAttribute("loggedInUser");
 
-            // אם האימייל (ה-ID שלו) השתנה, מנתקים אותו ומבקשים ממנו להתחבר מחדש
+            // במקרה של שינוי אימייל (או אם המשתמש נעלם) - ניתוק כפוי ונקי
             if (updatedUser == null || !originalEmail.equalsIgnoreCase(updatedUser.getEmail())) {
-                com.vaadin.flow.component.notification.Notification.show(
-                        "Email changed successfully. Please log in again.",
-                        4000, com.vaadin.flow.component.notification.Notification.Position.MIDDLE);
                 logOut();
             } else {
-                // אם רק ה-Username או הסיסמה השתנו, מרעננים את ה-Navbar ואת המסך הנוכחי
+                // במקרה של שינוי שם בלבד: מעדכנים את ה-Navbar מבלי לרענן את כל הדפדפן בכוח
                 refreshNavbarContent();
-
-                // מרעננים את ה-Grid ב-HomeView הקיים אם הוא על המסך
+                
+                // רענון טבלת הקבצים הקיימת מאחורי הדיאלוג
                 UI.getCurrent().getChildren()
                         .filter(comp -> comp instanceof HomeView)
                         .map(comp -> (HomeView) comp)
@@ -142,11 +159,18 @@ public class AppNavbarLayout extends AppLayout {
     }
 
     public void logOut() {
-        if (SessionHelper.getAttribute("loggedInUser") != null) {
-            SessionHelper.removeAttribute("loggedInUser");
-            SessionHelper.invalidate();
-            refreshNavbarContent();
-            RouteHelper.navigateTo(StartView.class);
-        }
+        // 1. קודם כל ולפני הכל: שולחים לדפדפן את פקודת הניווט החוצה (למסך הראשי)!
+        // ברגע שהפקודה הזו נשלחת, הלקוח כבר בדרך החוצה.
+        RouteHelper.navigateTo(MainView.class); 
+
+        // 2. מנקים את המידע שלנו מהזיכרון
+        SessionHelper.removeAttribute("loggedInUser");
+        
+        // 3. סוגרים את הסשן הפנימי של Vaadin בצורה מסודרת
+        VaadinSession.getCurrent().close();
+        
+        // 4. משמידים לחלוטין את הסשן של השרת (Tomcat/HTTP)
+        SessionHelper.invalidate();
     }
+
 }

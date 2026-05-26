@@ -7,186 +7,136 @@ import com.ftp_proj.project_ftp_v1.utils.SessionHelper;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.dialog.Dialog;
+import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.notification.Notification;
+import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.EmailField;
 import com.vaadin.flow.component.textfield.PasswordField;
 import com.vaadin.flow.component.textfield.TextField;
+import com.vaadin.flow.data.value.ValueChangeMode;
 
 public class ProfileDialog extends Dialog {
 
     private final UserService userService;
     private final FtpUiService ftpService;
-    private final Runnable onUpdateSuccess;
+    private final Runnable onSuccessCallback;
 
-    // רכיבי ה-UI שנצטרך לגשת אליהם בין המתודות
     private TextField usernameField;
     private EmailField emailField;
-    private PasswordField newPasswordField;
-    private VerticalLayout passwordSection;
+    private PasswordField passwordField;
     private Button saveBtn;
-    private Button changePasswordBtn;
 
-    // משתנים לשמירת המצב המקורי כדי לדעת אם משהו השתנה
     private String originalUsername;
     private String originalEmail;
-    private boolean isPasswordSectionActive = false;
 
-    public ProfileDialog(UserService userService, FtpUiService ftpService, Runnable onUpdateSuccess) {
+    public ProfileDialog(UserService userService, FtpUiService ftpService, Runnable onSuccessCallback) {
         this.userService = userService;
         this.ftpService = ftpService;
-        this.onUpdateSuccess = onUpdateSuccess;
-
-        setHeaderTitle("User Profile Settings");
-        
-        // מניעת סגירת החלון בלחיצה מחוץ לדיאלוג (Esc או קליק ברקע) כדי שלא יאבדו שינויים בטעות
-        setCloseOnOutsideClick(false);
-        setCloseOnEsc(false);
+        this.onSuccessCallback = onSuccessCallback;
 
         User currentUser = (User) SessionHelper.getAttribute("loggedInUser");
         if (currentUser != null) {
-            // שמירת המצב המקורי של המשתמש
             this.originalUsername = currentUser.getUsername();
             this.originalEmail = currentUser.getEmail();
-            
-            buildContent(currentUser);
-        } else {
-            add("No active user session found.");
+            buildUI(currentUser);
         }
     }
 
-    private void buildContent(User user) {
-        VerticalLayout layout = new VerticalLayout();
-        layout.setSpacing(true);
+    private void buildUI(User user) {
+        H2 title = new H2("Edit Profile");
 
+        // הגדרת השדות והבדיקות עליהם (Validation)
         usernameField = new TextField("Username");
-        usernameField.setValue(originalUsername);
-        usernameField.setWidthFull();
+        usernameField.setValue(user.getUsername());
+        usernameField.setRequiredIndicatorVisible(true);
+        usernameField.setMinLength(3);
+        usernameField.setErrorMessage("Minimum 3 characters");
 
-        emailField = new EmailField("Email Address");
-        emailField.setValue(originalEmail);
-        emailField.setWidthFull();
+        emailField = new EmailField("Email");
+        emailField.setValue(user.getEmail());
+        emailField.setRequiredIndicatorVisible(true);
+        emailField.setErrorMessage("Enter a valid email address");
 
-        // אזור סיסמה מוסתר
-        changePasswordBtn = new Button("Change Password");
-        passwordSection = new VerticalLayout();
-        passwordSection.setVisible(false);
-        passwordSection.setPadding(false);
+        passwordField = new PasswordField("New Password (Leave empty to keep current)");
+        passwordField.setMinLength(6);
+        passwordField.setErrorMessage("Password must be at least 6 characters");
 
-        newPasswordField = new PasswordField("New Password");
-        newPasswordField.setWidthFull();
-        passwordSection.add(newPasswordField);
+        // הפעלת בדיקה בכל הקלדה (EAGER)
+        usernameField.setValueChangeMode(ValueChangeMode.EAGER);
+        emailField.setValueChangeMode(ValueChangeMode.EAGER);
+        passwordField.setValueChangeMode(ValueChangeMode.EAGER);
 
-        // מאזינים לשינוי ערך בכל אחד מהשדות כדי לבדוק בזמן אמת אם כפתור השמירה צריך להידלק
-        usernameField.addValueChangeListener(e -> checkChanges());
-        emailField.addValueChangeListener(e -> checkChanges());
-        newPasswordField.addValueChangeListener(e -> checkChanges());
-
-        changePasswordBtn.addClickListener(e -> {
-            isPasswordSectionActive = !isPasswordSectionActive;
-            passwordSection.setVisible(isPasswordSectionActive);
-            changePasswordBtn.setText(isPasswordSectionActive ? "Cancel Password Change" : "Change Password");
-            if (!isPasswordSectionActive) {
-                newPasswordField.clear(); // מנקה את השדה אם התחרט וסגר
-            }
-            checkChanges(); // בדיקה מחדש אם כפתור השמירה צריך להשתנות
-        });
-
-        // יצירת כפתור שמירה (כחול) - מתחיל כ-Disabled (אפור מנוטרל)
-        saveBtn = new Button("Save Changes");
+        saveBtn = new Button("Save Changes", e -> handleSave(user));
         saveBtn.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
-        saveBtn.setEnabled(false); 
+        saveBtn.setEnabled(false); // כבוי כברירת מחדל
 
-        saveBtn.addClickListener(e -> handleSave(user));
+        Button cancelBtn = new Button("Cancel", e -> close());
 
-        // כפתור ביטול
-        Button cancelBtn = new Button("Cancel", e -> handleCancel());
+        // מאזינים לשינויים בכל השדות
+        // בכל פעם שיש שינוי בשדה שם המשתמש -> תפעיל את פונקציית הבדיקה
+        usernameField.addValueChangeListener(event -> validateAndEnableSaveButton());
 
-        HorizontalLayout actions = new HorizontalLayout(saveBtn, cancelBtn);
-        
-        layout.add(usernameField, emailField, changePasswordBtn, passwordSection, actions);
-        add(layout);
+        // בכל פעם שיש שינוי בשדה האימייל -> תפעיל את פונקציית הבדיקה
+        emailField.addValueChangeListener(event -> validateAndEnableSaveButton());
+
+        // בכל פעם שיש שינוי בשדה הסיסמה -> תפעיל את פונקציית הבדיקה
+        passwordField.addValueChangeListener(event -> validateAndEnableSaveButton());
+
+        VerticalLayout layout = new VerticalLayout(title, usernameField, emailField, passwordField);
+        layout.setPadding(false);
+        layout.setSpacing(true);
+        layout.setAlignItems(FlexComponent.Alignment.STRETCH);
+
+        HorizontalLayout buttonsLayout = new HorizontalLayout(cancelBtn, saveBtn);
+        buttonsLayout.setJustifyContentMode(FlexComponent.JustifyContentMode.END);
+
+        add(layout, buttonsLayout);
     }
 
-    /**
-     * פונקציה הבודקת בזמן אמת האם חל שינוי כלשהו בטופס לעומת המצב המקורי.
-     * אם יש שינוי - כפתור השמירה מופעל (הופך לכחול). אם אין שינוי - הוא מנוטרל (אפור).
-     */
-    private void checkChanges() {
-        String currentUsername = usernameField.getValue().trim();
-        String currentEmail = emailField.getValue().trim();
-        String currentPassword = newPasswordField.getValue();
+    private void validateAndEnableSaveButton() {
+        // בודקים אם משהו השתנה לעומת המקור
+        boolean isUsernameChanged = !usernameField.getValue().equals(originalUsername);
+        boolean isEmailChanged = !emailField.getValue().equals(originalEmail);
+        boolean isPasswordChanged = !passwordField.getValue().isEmpty();
+        boolean isSomethingChanged = isUsernameChanged || isEmailChanged || isPasswordChanged;
 
-        boolean usernameChanged = !currentUsername.equals(originalUsername);
-        boolean emailChanged = !currentEmail.equals(originalEmail);
-        boolean passwordChanged = isPasswordSectionActive && !currentPassword.isEmpty();
+        // בודקים שהשדות תקינים חוקית (לא ריקים ולא שוברים את חוקי ה-Email/אורך מינימלי)
+        boolean isFormValid = !usernameField.isInvalid() && !usernameField.isEmpty() &&
+                !emailField.isInvalid() && !emailField.isEmpty() &&
+                !passwordField.isInvalid();
 
-        // כפתור השמירה יהיה פעיל (Enabled) רק אם לפחות שדה אחד השתנה בפועל
-        boolean hasAnyChange = usernameChanged || emailChanged || passwordChanged;
-        saveBtn.setEnabled(hasAnyChange);
-    }
-
-    /**
-     * פונקציה המנהלת את הלוגיקה של כפתור הביטול או סגירת החלון
-     */
-    private void handleCancel() {
-        // אם כפתור השמירה דולק/פעיל, זה אומר שיש שינויים שלא נשמרו!
-        if (saveBtn.isEnabled()) {
-            // פתיחת דיאלוג משני קטן השואל לאישור
-            Dialog confirmDialog = new Dialog();
-            confirmDialog.setHeaderTitle("Unsaved Changes");
-            confirmDialog.add(new VerticalLayout(new com.vaadin.flow.component.html.Span(
-                    "You have unsaved changes. Are you sure you want to leave without saving?")));
-
-            Button stayBtn = new Button("Stay", e -> confirmDialog.close());
-            Button leaveBtn = new Button("Discard & Leave", e -> {
-                confirmDialog.close();
-                this.close(); // סגירת חלון הפרופיל הראשי
-            });
-            leaveBtn.addThemeVariants(ButtonVariant.LUMO_ERROR);
-
-            confirmDialog.getFooter().add(stayBtn, leaveBtn);
-            confirmDialog.open();
-        } else {
-            // אם לא נעשה שום שינוי, אפשר לסגור ישירות בלי להציק למשתמש
-            this.close();
-        }
+        // מדליקים את הכפתור רק אם יש שינוי והכל תקין
+        saveBtn.setEnabled(isSomethingChanged && isFormValid);
     }
 
     private void handleSave(User user) {
-        String oldEmail = user.getEmail();
-        String newUsername = usernameField.getValue().trim();
-        String newEmail = emailField.getValue().trim();
+        String newUsername = usernameField.getValue();
+        String newEmail = emailField.getValue();
+        String newPassword = passwordField.getValue();
 
-        if (newUsername.isEmpty() || newEmail.isEmpty()) {
-            Notification.show("Fields cannot be empty.");
-            return;
+        // אם הוזנה סיסמה חדשה, נעדכן אותה בזיכרון (נשמר במסד אח"כ)
+        if (!newPassword.isEmpty()) {
+            user.setPassword(newPassword);
         }
 
-        // 1. עדכון הפרופיל ב-DB
+        // ניסיון שמירה מול ה-DB
         boolean success = userService.updateProfile(user, newUsername, newEmail);
-        
+
         if (success) {
-            // 2. עדכון סיסמה אם השדה פתוח ומלא
-            if (isPasswordSectionActive && !newPasswordField.getValue().isEmpty()) {
-                user.setPassword(newPasswordField.getValue());
-                userService.updateProfile(user, user.getUsername(), user.getEmail());
+            // אם האימייל שונה, צריך לעדכן את כל הקבצים שלו בשרת
+            if (!originalEmail.equalsIgnoreCase(newEmail)) {
+                ftpService.updateFilesOwnerEmail(originalEmail, newEmail);
             }
-
-            // 3. עדכון קבצים במידה והאימייל השתנה
-            if (!oldEmail.equalsIgnoreCase(newEmail)) {
-                ftpService.updateFilesOwnerEmail(oldEmail, newEmail);
-            }
-
-            // 4. עדכון הסשן
             SessionHelper.setAttribute("loggedInUser", user);
-            
-            Notification.show("Profile updated successfully!");
-            onUpdateSuccess.run(); 
-            this.close();
+            Notification.show("Profile updated successfully!", 3000, Notification.Position.BOTTOM_CENTER);
+            close();
+            if (onSuccessCallback != null) {
+                onSuccessCallback.run();
+            }
         } else {
-            Notification.show("Username/Email already taken.");
+            Notification.show("Email is already in use by another account.", 4000, Notification.Position.MIDDLE);
         }
     }
 }

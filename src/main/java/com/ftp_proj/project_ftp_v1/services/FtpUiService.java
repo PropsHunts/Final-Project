@@ -15,6 +15,7 @@ import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 
 /**
@@ -84,39 +85,82 @@ public class FtpUiService {
      * By passing the InputStream directly to the compressor and then to the FTP,
      * we avoid loading the entire file into RAM, saving memory.
      */
-    public void uploadAndCompressFile(User user, String filename, InputStream fileData) throws IOException {
-        FTPClient ftp = createClient(user);
-        // Append .lz78 extension to mark it as compressed
-        String remoteName = filename.endsWith(".lz78") ? filename : filename + ".lz78";
+    public void uploadAndCompressFile(User user, String filename, InputStream fileData, long totalBytes,
+            FileUploadCallback callback) throws IOException {
+        FTPClient ftp = null;
+        try {
+            ftp = createClient(user);
+            String remoteName = filename.endsWith(".lz78") ? filename : filename + ".lz78";
 
-        // Open an output stream to the FTP server
-        try (OutputStream ftpOut = ftp.storeFileStream(remoteName)) {
-            if (ftpOut == null)
-                throw new IOException("Failed to open FTP data connection.");
+            // יצירת "צינור" סופר פשוט שרק מחשב אחוזים
+            InputStream progressStream = new InputStream() {
+                private long totalRead = 0;
+                private int lastPercent = 0; // שומר את האחוז האחרון שדיווחנו עליו
 
-            // Pipe the raw file data through the LZ78 compressor directly into the FTP
-            // stream
-            lz78Service.compress(fileData, ftpOut);
+                @Override
+                public int read() throws IOException {
+                    int b = fileData.read();
+                    if (b != -1)
+                        updateProgress(1);
+                    return b;
+                }
+
+                @Override
+                public int read(byte[] b, int off, int len) throws IOException {
+                    int read = fileData.read(b, off, len);
+                    if (read != -1)
+                        updateProgress(read);
+                    return read;
+                }
+
+                private void updateProgress(int bytesRead) {
+                    totalRead += bytesRead;
+                    // חישוב האחוז הנוכחי
+                    int currentPercent = (int) ((totalRead * 100) / totalBytes);
+
+                    // מדווחים ל-UI *רק* אם האחוז התקדם למספר חדש
+                    if (currentPercent > lastPercent) {
+                        callback.onProgress(currentPercent);
+                        lastPercent = currentPercent; // מעדכנים את האחוז האחרון
+                    }
+                }
+            };
+
+            try (OutputStream ftpOut = ftp.storeFileStream(remoteName)) {
+                if (ftpOut == null)
+                    throw new IOException("Failed to open FTP data connection.");
+
+                // מעבירים ל-LZ78 את הצינור שיצרנו הרגע
+                lz78Service.compress(progressStream, ftpOut);
+            }
+
+            if (ftp.completePendingCommand()) {
+                FTPFile[] files = ftp.listFiles(remoteName);
+                long compressedSize = (files != null && files.length > 0) ? files[0].getSize() : 0;
+                System.out.println(filename);
+                FileDocument doc = fileRepository.findByOwnerEmailAndFileName(user.getEmail(), filename);
+                if (doc == null) doc = new FileDocument(user.getEmail(), filename, totalBytes);
+                doc.setCompressedSize(compressedSize);
+                fileRepository.save(doc);
+                user.setFileId(doc.getFileId());
+                userRepository.save(user);
+
+                callback.onComplete(true); // סיום בהצלחה
+            } else {
+                callback.onComplete(false); // כישלון בשרת
+            }
+
+        } catch (Exception e) {
+            callback.onComplete(false);
+            throw new IOException("Upload failed: " + e.getMessage(), e);
+        } finally {
+            if (ftp != null && ftp.isConnected()) {
+                try {
+                    ftp.disconnect();
+                } catch (IOException ignored) {
+                }
+            }
         }
-
-        // Wait for the FTP server to acknowledge the transfer is complete
-        if (ftp.completePendingCommand()) {
-            // Retrieve the final compressed size from the FTP server to save in the
-            // Database
-            FTPFile[] files = ftp.listFiles(remoteName);
-            long compressedSize = (files != null && files.length > 0) ? files[0].getSize() : 0;
-
-            // Update or create the document in MongoDB
-            FileDocument doc = fileRepository.findByOwnerEmailAndFileName(user.getEmail(), filename);
-            if (doc == null)
-                doc = new FileDocument(user.getEmail(), filename, 0);
-            doc.setCompressedSize(compressedSize);
-            fileRepository.save(doc);
-            user.setFileId(doc.getFileId());
-            user.printAllFilesID();
-            userRepository.save(user);
-        }
-        ftp.disconnect();
     }
 
     public void downloadFileFromFtp(User user, String filename, OutputStream browserStream) {
@@ -132,9 +176,6 @@ public class FtpUiService {
                     return;
                 }
 
-                // 2. הזרמה טהורה (Zero RAM)
-                // ה-LZ78 שואב את הביטים הדחוסים מה-FTP (in), פורס אותם,
-                // וזורק את המקור ישירות לדפדפן (browserStream) בזמן אמת!
                 lz78Service.decompress(in, browserStream);
             }
 
@@ -223,11 +264,17 @@ public class FtpUiService {
             // Calculate size: if smaller than 1KB, show 1KB
             long sizeInKb = doc.getCompressedSize() / 1024;
             String sizeStr = (sizeInKb > 0 ? sizeInKb : 1) + " KB";
-
+            String fileName = doc.getFileName();
+            String fileType = "FILE";
+            int lastDotIndex = fileName.lastIndexOf('.');
+            // מוודאים שיש נקודה ושזו לא הנקודה האחרונה בשם (כדי למנוע חריגות)
+            if (lastDotIndex > 0 && lastDotIndex < fileName.length() - 1) {
+                fileType = fileName.substring(lastDotIndex + 1).toUpperCase();
+            }
             list.add(new UploadedFileDTO(
                     doc.getFileName(),
                     sizeStr,
-                    "LZ78 Compressed",
+                    fileType,
                     doc.getUploadDate().toString()));
         }
         return list;
@@ -235,17 +282,29 @@ public class FtpUiService {
 
     // תוסיף את זה בתוך FtpUiService.java
     public void updateFilesOwnerEmail(String oldEmail, String newEmail) {
-        // 1. שליפת כל מסמכי הקבצים השייכים לאימייל הקודם
+        // 1. עדכון מסמכי הקבצים ב-MongoDB
         List<FileDocument> userFiles = fileRepository.findByOwnerEmail(oldEmail);
-
         if (userFiles != null && !userFiles.isEmpty()) {
-            // 2. עדכון שדה ה-ownerEmail לכל קובץ
             for (FileDocument doc : userFiles) {
                 doc.setOwnerEmail(newEmail);
             }
-            // 3. שמירה קבוצתית מעודכנת ב-MongoDB
             fileRepository.saveAll(userFiles);
-            System.out.println("[DEBUG] Updated " + userFiles.size() + " files to new owner email: " + newEmail);
+            System.out.println("[DEBUG] Updated " + userFiles.size() + " files in DB to new owner email: " + newEmail);
+        }
+
+        // 2. שינוי שם התיקייה הפיזית על הדיסק (מערכת ההפעלה)
+        try {
+            Path oldFolderPath = Paths.get("storage", oldEmail);
+            Path newFolderPath = Paths.get("storage", newEmail);
+
+            // אם התיקייה הישנה קיימת, אנחנו פשוט משנים לה את השם (Move) לתיקייה החדשה
+            if (Files.exists(oldFolderPath)) {
+                Files.move(oldFolderPath, newFolderPath, StandardCopyOption.REPLACE_EXISTING);
+                System.out.println("[DEBUG] Physical folder renamed from " + oldEmail + " to " + newEmail);
+            }
+        } catch (IOException e) {
+            System.err.println("[ERROR] Failed to rename physical folder from " + oldEmail + " to " + newEmail);
+            e.printStackTrace();
         }
     }
 }
