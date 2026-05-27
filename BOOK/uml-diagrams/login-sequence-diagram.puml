@@ -1,0 +1,18 @@
+@startuml login
+skinparam maxMessageSize 150
+skinparam ParticipantPadding 20
+
+actor "User" as user
+participant "שרת HTTP" as server
+database "MongoDB" as db
+
+user -> server : שליחת שם משתמש וסיסמה
+server -> db : בדיקת קיום משתמש לפי שם משתמש
+alt משתמש קיים במערכת
+    db --> server : נמצא משתמש
+    server --> user : אישור התחברות
+else משתמש לא קיים
+    db --> server : משתמש לא נמצא
+    server --> user : הודעת שגיאה
+end
+@enduml

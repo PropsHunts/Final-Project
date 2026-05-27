@@ -1,0 +1,58 @@
+@startuml class
+hide empty members
+skinparam class {
+    BackgroundColor White
+    BorderColor #1e293b
+    ArrowColor #2563eb
+}
+
+package "External Libraries" {
+    interface MongoRepository <<Spring Data>>
+    interface Runnable <<Java.lang>>
+}
+
+package "Data Models" {
+    class User
+    class FileDocument
+    class UploadedFileDTO
+}
+
+package "Repositories" {
+    interface FileRepository
+    interface UserRepository
+}
+
+package "Services & Core Logic" {
+    class FtpUiService
+    interface FileUploadCallback
+    class UserService
+    class LZ78Service
+    class Node
+    class MyFtpServer
+    class FtpClientHandler
+    class ProjectFtpV1Application
+    class AppConfig
+}
+
+' --- ירושות ומימושים ---
+FileRepository -up-|> MongoRepository : extends
+UserRepository -up-|> MongoRepository : extends
+FtpClientHandler .up.|> Runnable : implements
+FtpUiService +-- FileUploadCallback : contains (Inner Interface)
+
+' --- הכלה (Composition) ---
+FtpUiService *-- UserRepository
+FtpUiService *-- FileRepository
+FtpUiService *-- LZ78Service
+UserService *-- UserRepository
+LZ78Service *-- Node
+Node o-- Node : children
+
+' --- תלויות (Dependencies) ---
+FileRepository ..> FileDocument : manages
+UserRepository ..> User : manages
+FtpUiService ..> User : uses
+UserService ..> User : uses
+FtpUiService ..> UploadedFileDTO : creates
+MyFtpServer ..> FtpClientHandler : creates threads
+@enduml

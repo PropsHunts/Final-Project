@@ -1,0 +1,19 @@
+@startuml upload
+skinparam maxMessageSize 150
+skinparam ParticipantPadding 20
+
+actor "User" as user
+participant "לקוח FTP" as ftpClient
+participant "שרת FTP" as ftpServer
+participant "מנגנון דחיסה" as compressor
+database "אחסון קבצים" as storage
+
+user -> ftpClient : בקשת העלאת קובץ
+ftpClient -> ftpServer : שליחת קובץ
+ftpServer -> compressor : דחיסת הקובץ
+compressor -> ftpServer : קובץ דחוס
+ftpServer -> storage : שמירת הקובץ הדחוס
+storage --> ftpServer : אישור שמירה
+ftpServer --> ftpClient : אישור הצלחה
+ftpClient --> user : הצגת הודעה
+@enduml

@@ -1,0 +1,23 @@
+@startuml profile
+skinparam maxMessageSize 150
+skinparam ParticipantPadding 20
+
+actor "User" as user
+participant "שרת HTTP" as server
+database "MongoDB" as db
+database "אחסון קבצים" as storage
+
+user -> server : שליחת פרטים מעודכנים (כולל אימייל)
+server -> db : בדיקה האם אימייל תפוס
+alt אימייל פנוי (או זהה לנוכחי)
+    db --> server : האימייל תקין ופנוי
+    server -> db : עדכון פרטי משתמש
+    db --> server : המשתמש עודכן
+    server -> storage : שינוי שם תיקייה פיזית (לפי אימייל)
+    storage --> server : אישור שינוי
+    server --> user : הודעת הצלחה (הפרופיל עודכן)
+else אימייל כבר תפוס
+    db --> server : האימייל קיים במערכת
+    server --> user : הודעת שגיאה
+end
+@enduml

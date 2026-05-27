@@ -1,0 +1,24 @@
+@startuml usecase
+
+left to right direction
+
+actor "משתמש" as User
+
+rectangle "לאחסון והורדת קבצים שרת FTP" {
+
+    usecase "יצירת משתמש" as UC1
+    usecase "התחברות" as UC2
+    usecase "התנתקות" as UC3
+    usecase "עריכת פרופיל" as UC4
+    usecase "העלאת קובץ" as UC5
+    usecase "הורדת קובץ" as UC6
+}
+
+User --> UC1
+User --> UC2
+User --> UC3
+User --> UC4
+User --> UC5
+User --> UC6
+
+@enduml

@@ -1,0 +1,19 @@
+@startuml download
+skinparam maxMessageSize 150
+skinparam ParticipantPadding 20
+
+actor "User" as user
+participant "לקוח FTP" as ftpClient
+participant "שרת FTP" as ftpServer
+participant "מנגנון דחיסה" as compressor
+database "אחסון קבצים" as storage
+
+user -> ftpClient : בקשת הורדת קובץ
+ftpClient -> ftpServer : דרישת קובץ
+ftpServer -> storage : שליפת קובץ דחוס
+storage --> ftpServer : קובץ דחוס
+ftpServer -> compressor : פריסת הקובץ
+compressor -> ftpServer : קובץ מקורי (פרוס)
+ftpServer --> ftpClient : שליחת הקובץ
+ftpClient --> user : הצגת הודעה (הורדה הושלמה)
+@enduml
