@@ -46,7 +46,7 @@ public class HomeView extends VerticalLayout implements BeforeEnterObserver {
         removeAll();
         grid.removeAllColumns();
 
-        H1 title = new H1("My FTP Cloud Storage");
+        H1 title = new H1("My FTP Storage");
 
         // עמודות הטבלה
         grid.addColumn(UploadedFileDTO::name).setHeader("File Name").setAutoWidth(true);

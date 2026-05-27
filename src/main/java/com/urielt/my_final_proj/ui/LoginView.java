@@ -27,6 +27,6 @@ public class LoginView extends VerticalLayout {
             } else { login.setError(true); login.setEnabled(true); }
         });
 
-        add(new H1("התחברות"), login, new Button("הרשמה", e -> UI.getCurrent().navigate(RegisterView.class)));
+        add(new H1("התחברות"), login);
     }
 }   

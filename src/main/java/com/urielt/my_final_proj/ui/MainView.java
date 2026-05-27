@@ -1,8 +1,6 @@
 package com.urielt.my_final_proj.ui;
 
 import com.vaadin.flow.component.html.*;
-import com.vaadin.flow.component.icon.Icon;
-import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.orderedlayout.*;
 import com.vaadin.flow.router.Route;
 
@@ -16,7 +14,7 @@ public class MainView extends VerticalLayout {
         setJustifyContentMode(JustifyContentMode.CENTER);
         getStyle().set("background", "linear-gradient(135deg, #f0f4ff 0%, #e5e7eb 100%)");
 
-        // יצירת הכרטיסייה המרכזית
+        // יצירת הכרטיסייה המרכזית (הכרטיס הראשי)
         Div card = new Div();
         card.getStyle()
             .set("width", "100%")
@@ -27,56 +25,54 @@ public class MainView extends VerticalLayout {
             .set("background-color", "white")
             .set("text-align", "center");
 
-        // לוגו
-        Image logo = new Image("images/logo.png", "Logo");
-        logo.setWidth("180px");
-        logo.getStyle().set("margin-bottom", "15px");
+        // 1. שם הפרויקט
+        H1 title = new H1("שרת FTP להעלאת והורדת קבצים");
+        title.getStyle()
+            .set("margin-top", "0")
+            .set("margin-bottom", "20px")
+            .set("color", "#1f2937")
+            .set("font-size", "1.8rem")
+            .set("direction", "rtl");
 
-        // כותרת ותת-כותרת
-        H1 title = new H1("ברוכים הבאים לאתר אחסון ענן המבוסס על שרת FTP");
-        title.getStyle().set("margin-top", "0").set("color", "#1f2937");
+        // 2. לוגו
+        Image logo = new Image("images/logo.png", "FTP Cloud Logo");
+        logo.setWidth("160px");
+        logo.getStyle().set("margin-bottom", "20px");
 
-        Paragraph subtitle = new Paragraph("FTP Server + LZ78");
-        subtitle.getStyle().set("color", "#4b5563").set("font-size", "1.1rem").set("margin-bottom", "30px");
-
-        // --- תקציר הפרויקט ---
-        VerticalLayout featuresList = new VerticalLayout();
-        featuresList.setPadding(false);
-        featuresList.setSpacing(false);
-        featuresList.getStyle()
-            .set("text-align", "right") // יישור לימין
-            .set("direction", "rtl")    // הגדרת כיוון טקסט לעברית (RTL)
-            .set("background", "#f8fafc")
-            .set("padding", "20px")
-            .set("border-radius", "12px")
-            .set("margin-bottom", "30px")
-            .set("border", "1px solid #e2e8f0");
-
-        featuresList.add(
-            createFeatureItem(VaadinIcon.FILE_ZIP, "שימוש באלגוריתם דחיסה LZ78"),
-            createFeatureItem(VaadinIcon.SERVER, "שרת FTP לניהול הקבצים")
-            // createFeatureItem(VaadinIcon.ROCKET, "אחסון ענן עד ל7GB בכל העלאה")
+        // 3. הסבר ב-2 שורות על הפרויקט
+        Paragraph projectDesc = new Paragraph(
+            "פלטפורמת ענן מתקדמת המאפשרת ניהול ואחסון קבצים מאובטח באמצעות שרת FTP עצמאי המבוסס על טכנולוגיית הזרמת מידע חכמה. " +
+            "המערכת משלבת את אלגוריתם הדחיסה LZ78 המבצע כיווץ ופריסה של הנתונים בזמן אמת (On-the-fly) לשמירה על טביעת זיכרון מינימלית."
         );
+        projectDesc.getStyle()
+            .set("color", "#4b5563")
+            .set("font-size", "1.05rem")
+            .set("line-height", "1.6")
+            .set("margin-bottom", "25px")
+            .set("padding", "0 10px")
+            .set("direction", "rtl");
 
-        // הרכבת הכל
-        card.add(logo, title, subtitle, featuresList);
+        // פס הפרדה מעוצב לפני פרטי המגיש
+        Hr divider = new Hr();
+        divider.getStyle().set("border", "none").set("border-top", "1px solid #e2e8f0").set("margin-bottom", "20px");
+
+        // 4 + 5. פרטי סטודנט ומוסד לימודים
+        VerticalLayout detailsLayout = new VerticalLayout();
+        detailsLayout.setPadding(false);
+        detailsLayout.setSpacing(true);
+        detailsLayout.setAlignItems(Alignment.CENTER);
+        detailsLayout.getStyle().set("direction", "rtl");
+
+        H4 studentNameAndId = new H4("אוריאל טוטיאשוילי ת.ז 215750779");
+        studentNameAndId.getStyle().set("color", "#1e293b").set("margin", "0").set("font-size", "1rem");
+
+        Span collegeName = new Span("כנפי רוח קרית נוער ירושלים");
+        collegeName.getStyle().set("color", "#64748b").set("font-weight", "500").set("font-size", "0.95rem");
+
+        detailsLayout.add(studentNameAndId, collegeName);
+
+        // הרכבת כל הרכיבים לתוך הכרטיס לפי הסדר המדויק
+        card.add(title, logo, projectDesc, divider, detailsLayout);
         add(card);
-    }
-
-    /**
-     * פונקציית עזר ליצירת שורה מעוצבת של אייקון + טקסט
-     */
-    private HorizontalLayout createFeatureItem(VaadinIcon vaadinIcon, String text) {
-        Icon icon = vaadinIcon.create();
-        icon.getStyle().set("color", "#2563eb").set("margin-left", "12px"); // margin-left בגלל שזה RTL
-        icon.setSize("20px");
-        
-        Span span = new Span(text);
-        span.getStyle().set("color", "#334155").set("font-weight", "500").set("font-size", "0.95rem");
-        
-        HorizontalLayout layout = new HorizontalLayout(icon, span);
-        layout.setAlignItems(Alignment.CENTER);
-        layout.getStyle().set("margin-bottom", "12px");
-        return layout;
     }
 }
