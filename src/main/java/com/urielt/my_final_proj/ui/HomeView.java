@@ -16,9 +16,11 @@ import com.vaadin.flow.component.upload.Upload;
 import com.vaadin.flow.router.*;
 import com.vaadin.flow.server.streams.UploadHandler;
 
+import java.util.concurrent.atomic.AtomicInteger; // <-- הוספנו את המונה
+
 @Route(value = "home", layout = AppNavbarLayout.class)
 public class HomeView extends VerticalLayout implements BeforeEnterObserver {
-    
+
     private final FtpUiService ftpService;
     private UI currentUI;
     private final Grid<UploadedFileDTO> grid = new Grid<>(UploadedFileDTO.class, false);
@@ -26,7 +28,7 @@ public class HomeView extends VerticalLayout implements BeforeEnterObserver {
 
     public HomeView(FtpUiService ftpService) {
         this.ftpService = ftpService;
-        setSizeFull(); 
+        setSizeFull();
         setAlignItems(Alignment.CENTER);
     }
 
@@ -36,7 +38,7 @@ public class HomeView extends VerticalLayout implements BeforeEnterObserver {
         if (activeUser == null) {
             event.rerouteTo(LoginView.class);
         } else {
-            currentUI = UI.getCurrent(); 
+            currentUI = UI.getCurrent();
             AppNavbarLayout.refreshCurrentNavbar();
             buildUI();
         }
@@ -48,19 +50,18 @@ public class HomeView extends VerticalLayout implements BeforeEnterObserver {
 
         H1 title = new H1("My FTP Storage");
 
-        // עמודות הטבלה
         grid.addColumn(UploadedFileDTO::name).setHeader("File Name").setAutoWidth(true);
         grid.addColumn(UploadedFileDTO::type).setHeader("Type").setAutoWidth(true);
         grid.addColumn(UploadedFileDTO::size).setHeader("Size").setAutoWidth(true);
         grid.addColumn(UploadedFileDTO::uploadTime).setHeader("Upload Date").setAutoWidth(true);
 
-        // כפתורי הורדה ומחיקה
         grid.addComponentColumn(file -> {
             Button downloadBtn = new Button("Download");
-            
-            String encodedFilename = java.net.URLEncoder.encode(file.name(), java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20");
+
+            String encodedFilename = java.net.URLEncoder.encode(file.name(), java.nio.charset.StandardCharsets.UTF_8)
+                    .replace("+", "%20");
             Anchor downloadAnchor = new Anchor("/download/" + encodedFilename, "");
-            
+
             downloadAnchor.getElement().setAttribute("router-ignore", "true");
             downloadAnchor.setTarget("_blank");
             downloadAnchor.getElement().setAttribute("download", true);
@@ -81,44 +82,37 @@ public class HomeView extends VerticalLayout implements BeforeEnterObserver {
 
         refreshGrid();
 
-       // --- אזור ההעלאה ---
+        // --- אזור ההעלאה ---
         Upload upload = new Upload();
         upload.setDropLabel(new Span("Drag files here"));
 
-upload.getStyle().set("padding", "20px");
-
-upload.getElement().executeJs("""
-    this.shadowRoot.querySelector('[part="file-list"]')
-        ?.style.setProperty('display', 'none');
-""");
-        // דרישה 1: הגבלת גודל קובץ ל-7GB (7 * 1024 * 1024 * 1024 בתים)
         long maxFileSizeInBytes = 7L * 1024 * 1024 * 1024;
-        upload.setMaxFileSize((int) Math.min(maxFileSizeInBytes, Integer.MAX_VALUE)); // Vaadin מקבל int, נגביל למקסימום האפשרי שלו
-        // הערה: ב-Vaadin 24 עדיף להשאיר את ההגבלה העיקרית ב-application.properties, אבל הוספנו פה ליתר ביטחון
-        upload.setDropAllowed(true);        // יצירת אזור (קונטיינר) שיכיל את כל פסי הטעינה של הקבצים שעולים במקביל
-        upload.addFinishedListener(event -> {
-    upload.getElement().executeJs("this.files = this.files.filter(f => f.name !== $0);", event.getFileName());
-});
+        upload.setMaxFileSize((int) Math.min(maxFileSizeInBytes, Integer.MAX_VALUE));
+        upload.setDropAllowed(true);
 
-// 4. מאזין לקבצים שנחסמו (כי עברו את ה-7GB) כדי להציג הודעה למשתמש
-upload.addFileRejectedListener(event -> {
-    Notification.show("השרת אינו מקבל קבצים מעל 7GB!", 5000, Notification.Position.MIDDLE);
-});
+        upload.addFileRejectedListener(event -> {
+            Notification.show("השרת אינו מקבל קבצים מעל 7GB!", 5000, Notification.Position.MIDDLE);
+        });
+
         VerticalLayout uploadsContainer = new VerticalLayout();
         uploadsContainer.setWidth("400px");
         uploadsContainer.setMaxWidth("90%");
 
-        // ניהול תהליך ההעלאה
+        // *** התיקון ההנדסי - מונה העלאות חי ***
+        AtomicInteger activeUploads = new AtomicInteger(0);
+
         UploadHandler uploadHandler = event -> {
             String filename = event.getFileName();
             long totalBytes = event.getFileSize();
+
+            // קובץ חדש מתחיל לעלות - מוסיפים 1 למונה!
+            activeUploads.incrementAndGet();
 
             try {
                 if (ftpService.doesFileExist(activeUser, filename)) {
                     throw new RuntimeException("File already exists on server");
                 }
 
-                // דרישה 2: יצירת פס טעינה *ייעודי* לקובץ הספציפי הזה
                 ProgressBar progressBar = new ProgressBar();
                 progressBar.setWidthFull();
                 Span statusText = new Span("Uploading " + filename + ": ");
@@ -129,57 +123,70 @@ upload.addFileRejectedListener(event -> {
                 progressLayout.setWidthFull();
                 progressLayout.setAlignItems(Alignment.CENTER);
 
-                // הוספת פס הטעינה למסך מיד עם תחילת ההעלאה
                 currentUI.access(() -> uploadsContainer.add(progressLayout));
 
-                ftpService.uploadAndCompressFile(activeUser, filename, event.getInputStream(), totalBytes, new FtpUiService.FileUploadCallback() {
-                    
-                    @Override
-                    public void onProgress(int percent) {
-                        currentUI.access(() -> {
-                            progressBar.setValue(percent / 100.0);
-                            percentText.setText(percent + "%");
-                        });
-                    }
+                ftpService.uploadAndCompressFile(activeUser, filename, event.getInputStream(), totalBytes,
+                        new FtpUiService.FileUploadCallback() {
 
-                    @Override
-                    public void onComplete(boolean success) {
-                        currentUI.access(() -> {
-                            // מחיקת פס הטעינה *הספציפי* הזה בלבד! לא פוגע בקבצים אחרים שעולים
-                            uploadsContainer.remove(progressLayout);
-                            
-                            // תיקון קריטי: הסרנו את upload.clearFileList() כדי לא לנתק קבצים אחרים
-                            
-                            if (success) {
-                                Notification.show("'" + filename + "' uploaded successfully!");
-                                
-                                refreshGrid();
-                            } else {
-                                Notification.show("Upload failed for '" + filename + "'.");
+                            @Override
+                            public void onProgress(int percent) {
+                                // התיקון: בודקים אם המסך עדיין קיים (המשתמש לא עשה ריפרש)
+                                if (currentUI.isAttached()) {
+                                    currentUI.access(() -> {
+                                        progressBar.setValue(percent / 100.0);
+                                        percentText.setText(percent + "%");
+                                    });
+                                }
+                            }
+
+                            @Override
+                            public void onComplete(boolean success) {
+                                // התיקון: בודקים אם המסך עדיין קיים לפני שמעדכנים אותו
+                                if (currentUI.isAttached()) {
+                                    currentUI.access(() -> {
+                                        uploadsContainer.remove(progressLayout);
+
+                                        // מורידים 1 מהמונה. אם הגענו ל-0, ננקה את המסך
+                                        if (activeUploads.decrementAndGet() == 0) {
+                                            upload.clearFileList();
+                                        }
+
+                                        if (success) {
+                                            Notification.show("'" + filename + "' uploaded successfully!");
+                                            refreshGrid();
+                                        } else {
+                                            Notification.show("Upload failed for '" + filename + "'.");
+                                        }
+                                    });
+                                } else {
+                                    // אם המסך כבר מת (נעשה ריפרש), עדיין צריך להוריד את המונה מאחורי הקלעים!
+                                    activeUploads.decrementAndGet();
+                                }
                             }
                         });
-                    }
-                });
 
             } catch (Exception e) {
                 currentUI.access(() -> {
                     Notification.show("Error: " + e.getMessage());
+
+                    // במידה והייתה שגיאה (למשל קובץ שכבר קיים), גם מורידים מהמונה ובודקים האם צריך
+                    // לנקות
+                    if (activeUploads.decrementAndGet() == 0) {
+                        upload.clearFileList();
+                    }
                 });
             }
         };
 
         upload.setUploadHandler(uploadHandler);
 
-        // --- הנדסת ה-UI החדש (ימין ושמאל) ---
         HorizontalLayout topSection = new HorizontalLayout();
         topSection.setWidthFull();
-        topSection.setJustifyContentMode(JustifyContentMode.BETWEEN); // דוחף אותם לקצוות
-        topSection.setAlignItems(Alignment.START); // מיישר אותם למעלה
-        
-        // מוסיפים משמאל לימין: קודם פסי הטעינה, אחר כך כפתור ההעלאה
+        topSection.setJustifyContentMode(JustifyContentMode.BETWEEN);
+        topSection.setAlignItems(Alignment.START);
+
         topSection.add(uploadsContainer, upload);
 
-        // הוספה למסך הראשי: כותרת, האזור העליון (שמכיל ימין ושמאל), והטבלה למטה
         add(title, topSection, grid);
     }
 

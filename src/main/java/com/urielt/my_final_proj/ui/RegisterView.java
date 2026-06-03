@@ -2,6 +2,7 @@ package com.urielt.my_final_proj.ui;
 
 import com.urielt.my_final_proj.datamodels.User;
 import com.urielt.my_final_proj.services.UserService;
+import com.urielt.my_final_proj.utils.PasswordHelper;
 import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
@@ -53,8 +54,8 @@ public class RegisterView extends VerticalLayout {
         // פונקציית הבדיקה שמדליקה את הכפתור
         Runnable checkValid = () -> {
             boolean isFormValid = !usernameField.isInvalid() && !usernameField.isEmpty() &&
-                                  !emailField.isInvalid() && !emailField.isEmpty() &&
-                                  !passwordField.isInvalid() && !passwordField.isEmpty();
+                    !emailField.isInvalid() && !emailField.isEmpty() &&
+                    !passwordField.isInvalid() && !passwordField.isEmpty();
             registerBtn.setEnabled(isFormValid);
         };
 
@@ -64,20 +65,41 @@ public class RegisterView extends VerticalLayout {
         passwordField.addValueChangeListener(e -> checkValid.run());
 
         registerBtn.addClickListener(e -> {
-            User newUser = new User(emailField.getValue(), usernameField.getValue(), passwordField.getValue());
+            String email = emailField.getValue();
+            String username = usernameField.getValue();
+            String password = passwordField.getValue();
+
+            // 1. בדיקה האם האימייל כבר קיים במערכת
+            if (userService.isEmailTaken(email)) { // שים את שם הפונקציה המדויק שיש לך ב-Service
+                Notification.show("Email already exists. Please choose a different one.", 4000,
+                        Notification.Position.MIDDLE);
+                return; // עוצרים כאן, לא ממשיכים להרשמה!
+            }
+
+            // 2. בדיקה האם שם המשתמש כבר קיים במערכת
+            if (userService.isUsernameTaken(username)) { // הפונקציה החדשה שיצרנו
+                Notification.show("Username already taken. Please choose a different one.", 4000,
+                        Notification.Position.MIDDLE);
+                return; // עוצרים כאן!
+            }
+
+            // 3. אם הגענו לפה, גם האימייל וגם שם המשתמש פנויים! אפשר לשמור
+            User newUser = new User(email, username, PasswordHelper.getInstance().encode(password));
             boolean success = userService.addUserToDB(newUser);
+
             if (success) {
                 Notification.show("Registration successful! Please log in.");
                 UI.getCurrent().navigate(LoginView.class);
             } else {
-                Notification.show("Email already exists. Please choose a different one.");
+                Notification.show("Registration failed due to a server error. Please try again.");
             }
         });
 
         Button loginBtn = new Button("Already have an account? Log in", e -> UI.getCurrent().navigate(LoginView.class));
         loginBtn.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
 
-        VerticalLayout formLayout = new VerticalLayout(title, usernameField, emailField, passwordField, registerBtn, loginBtn);
+        VerticalLayout formLayout = new VerticalLayout(title, usernameField, emailField, passwordField, registerBtn,
+                loginBtn);
         formLayout.setAlignItems(Alignment.CENTER);
         formLayout.getStyle()
                 .set("border", "1px solid var(--lumo-contrast-20pct)")

@@ -4,13 +4,19 @@ import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
 
+/**
+ * מחלקה המטפלת בלקוח FTP בודד.
+ * המחלקה מיישמת את ממשק Runnable כדי לרוץ כתהליכון (Thread) נפרד לכל משתמש שמתחבר.
+ * תפקידה הוא לפענח את פקודות ה-FTP שמגיעות מהלקוח (כמו STOR, RETR, PASV) 
+ * ולבצע את הפעולות הפיזיות על הדיסק של השרת.
+ */
 public class FtpClientHandler implements Runnable {
     private final Socket controlSocket;
     private final String rootDir;
     private ServerSocket passiveServer;
     private PrintWriter writer;
 
-    // Stores the directory specific to the logged-in user to isolate their files
+    // שומר את התיקייה הספציפית של המשתמש המחובר כדי לבודד את הקבצים שלו
     private String currentUserDir = "";
 
     public FtpClientHandler(Socket socket, String rootDir) {
@@ -18,6 +24,11 @@ public class FtpClientHandler implements Runnable {
         this.rootDir = rootDir.endsWith(File.separator) ? rootDir : rootDir + File.separator;
     }
 
+    /**
+     * הפונקציה המרכזית שרצה ברקע מרגע התחברות הלקוח.
+     * מאזינה לערוץ השליטה (Control Socket), קוראת פקודות FTP טקסטואליות (כמו USER, PASS, STOR),
+     * ומנתבת אותן לפונקציות הטיפול המתאימות.
+     */
     @Override
     public void run() {
         try {
@@ -25,11 +36,13 @@ public class FtpClientHandler implements Runnable {
                     new InputStreamReader(controlSocket.getInputStream(), StandardCharsets.UTF_8));
             writer = new PrintWriter(new OutputStreamWriter(controlSocket.getOutputStream(), StandardCharsets.UTF_8),
                     true);
+            
+            // שליחת הודעת פתיחה המאשרת ללקוח שהשרת מוכן
             writer.println("220 FTP Ready");
 
             String line;
             try {
-                // Process incoming FTP commands from the client
+                // לולאה שרצה כל עוד הלקוח מחובר ושולח פקודות
                 while ((line = reader.readLine()) != null) {
                     String[] parts = line.split(" ", 2);
                     String cmd = parts[0].toUpperCase();
@@ -38,34 +51,35 @@ public class FtpClientHandler implements Runnable {
                     switch (cmd) {
                         case "USER" -> {
                             String username = arg.trim();
-                            // SECURITY: Prevent Directory Traversal Attacks (e.g., trying to access
-                            // "../other_user")
+                            // אבטחת מידע: מניעת מתקפת Directory Traversal (כדי שלא יוכל לגשת לתיקיות של אחרים)
                             if (username.contains("..") || username.contains("/") || username.contains("\\")) {
                                 writer.println("501 Invalid username format");
                             } else {
-                                // Lock the user into their own specific directory
+                                // נועלים את המשתמש לתיקייה האישית שלו בלבד
                                 currentUserDir = username + File.separator;
                                 writer.println("331 OK");
                             }
                         }
                         case "PASS" -> writer.println("230 Logged in");
                         case "OPTS", "TYPE" -> writer.println("200 OK");
-                        case "PASV" -> handlePasv(); // Enter Passive mode for data transfer
-                        case "STOR" -> handleStor(arg); // Upload a file
-                        case "RETR" -> handleRetr(arg); // Download a file
-                        case "LIST" -> handleList(); // List files in directory
+                        case "PASV" -> handlePasv(); // כניסה למצב סביל להעברת נתונים
+                        case "STOR" -> handleStor(arg); // העלאת קובץ לשרת
+                        case "RETR" -> handleRetr(arg); // הורדת קובץ מהשרת
+                        case "LIST" -> handleList(); // בקשת רשימת קבצים
                         case "QUIT" -> {
                             writer.println("221 Bye");
-                            return;
+                            return; // יציאה מהלולאה וסיום התהליכון
                         }
                         default -> writer.println("502 Command not implemented");
                     }
                 }
             } catch (SocketException e) {
+                // הלקוח התנתק באופן פתאומי
             }
         } catch (Exception e) {
             e.printStackTrace();
         } finally {
+            // ניקוי משאבים תמיד בסיום החיבור
             closePassive();
             try {
                 controlSocket.close();
@@ -74,21 +88,36 @@ public class FtpClientHandler implements Runnable {
         }
     }
 
+    /**
+     * מטפלת בפקודת PASV (Passive Mode).
+     * פקודה זו מכינה את השרת לקבלת או שליחת נתונים (קבצים).
+     * היא פותחת פורט אקראי חדש בשרת, ומדווחת ללקוח לאיזה פורט וכתובת IP הוא צריך להתחבר 
+     * כדי להתחיל את הזרמת המידע.
+     */
     private void handlePasv() throws IOException {
         closePassive();
-        passiveServer = new ServerSocket(0); // Let the OS choose an available port
+        passiveServer = new ServerSocket(0); // מערכת ההפעלה תבחר פורט פנוי אקראי
         int port = passiveServer.getLocalPort();
+        // מחזיר ללקוח את הכתובת והפורט בפורמט התקני של FTP
         writer.println("227 Entering Passive Mode (127,0,0,1," + (port / 256) + "," + (port % 256) + ")");
     }
 
     /**
-     * Extracts only the file name, ignoring any malicious paths provided by the
-     * client.
+     * פונקציית עזר לאבטחת מידע.
+     * מנקה את נתיב הקובץ שנשלח מהלקוח, ומשאירה רק את שם הקובץ עצמו,
+     * כדי למנוע ניסיונות פריצה ושמירת קבצים מחוץ לתיקיית המשתמש.
+     * @param filename השם או הנתיב שהלקוח שלח
+     * @return שם הקובץ הנקי
      */
     private String getSafePath(String filename) {
         return new File(filename).getName();
     }
 
+    /**
+     * מטפלת בפקודת STOR (Store / העלאה).
+     * מקבלת קובץ מהלקוח וכותבת אותו אל הדיסק הקשיח של השרת.
+     * * @param filename שם הקובץ שהלקוח רוצה לשמור
+     */
     private void handleStor(String filename) {
         if (passiveServer == null) {
             writer.println("425 Use PASV first");
@@ -99,27 +128,32 @@ public class FtpClientHandler implements Runnable {
             return;
         }
 
-        // Build the isolated path: Root Storage -> User's Folder -> Safe File Name
+        // בניית הנתיב הפיזי: תיקיית שורש -> תיקיית המשתמש -> שם הקובץ הנקי
         File file = new File(rootDir + currentUserDir + getSafePath(filename));
-        file.getParentFile().mkdirs(); // Create the user's folder if it doesn't exist
+        file.getParentFile().mkdirs(); // יצירת התיקייה במידה ואינה קיימת
 
         try {
             writer.println("150 Sending data");
-            // Accept the data connection and save the incoming bytes to the file
+            // המתנה לחיבור הנתונים מהלקוח אל הפורט הפסיבי שלנו, ואז כתיבת הזרם לקובץ
             try (Socket ds = passiveServer.accept();
                     InputStream in = ds.getInputStream();
                     OutputStream out = new FileOutputStream(file)) {
-                in.transferTo(out);
+                in.transferTo(out); // העברה ישירה מהרשת אל הדיסק
                 out.flush();
             }
-            writer.println("226 Transfer complete");
+            writer.println("226 Transfer complete"); // דיווח על סיום מוצלח
         } catch (Exception e) {
             writer.println("550 Error");
         } finally {
-            closePassive();
+            closePassive(); // סגירת פורט הנתונים
         }
     }
 
+    /**
+     * מטפלת בפקודת RETR (Retrieve / הורדה).
+     * פותחת קובץ קיים מהדיסק הקשיח של השרת ומזרימה אותו דרך הרשת אל הלקוח.
+     * * @param filename שם הקובץ שהלקוח מבקש להוריד
+     */
     private void handleRetr(String filename) {
         if (passiveServer == null) {
             writer.println("425 Use PASV");
@@ -133,6 +167,7 @@ public class FtpClientHandler implements Runnable {
         }
         try {
             writer.println("150 Sending data");
+            // המתנה לחיבור הנתונים מהלקוח, ואז שאיבת הקובץ מהדיסק לרשת
             try (Socket ds = passiveServer.accept();
                     OutputStream out = ds.getOutputStream();
                     InputStream in = new FileInputStream(file)) {
@@ -147,18 +182,18 @@ public class FtpClientHandler implements Runnable {
     }
 
     /**
-     * Handles the LIST command to provide directory contents to the client.
-     * This version ensures the user can only see files within their own isolated
-     * directory.
+     * מטפלת בפקודת LIST.
+     * סורקת את התיקייה הפיזית של המשתמש ומחזירה לו רשימה טקסטואלית של כל הקבצים שקיימים בה.
+     * פונקציה זו מוודאת שהמשתמש רואה אך ורק את הקבצים שלו.
      */
     private void handleList() {
-        // 1. Check if the client initiated a passive connection (PASV) first
+        // 1. מוודא שהלקוח פתח ערוץ נתונים (PASV)
         if (passiveServer == null) {
             writer.println("425 Use PASV first to establish a data connection");
             return;
         }
 
-        // 2. Ensure the user is identified so we know which directory to list
+        // 2. מוודא שהמשתמש מחובר כדי שנדע איזו תיקייה להציג לו
         if (currentUserDir.isEmpty()) {
             writer.println("530 Please log in first");
             closePassive();
@@ -166,24 +201,23 @@ public class FtpClientHandler implements Runnable {
         }
 
         try {
-            // 3. Signal that we are ready to start the data transfer
+            // 3. דיווח ללקוח שרשימת הקבצים מתחילה להישלח
             writer.println("150 Here comes the directory listing");
 
-            // 4. Open the data connection (Data Socket) using the passive server
+            // 4. פתיחת צינור הנתונים לשליחת הטקסט של הרשימה
             try (Socket ds = passiveServer.accept();
                     PrintWriter dw = new PrintWriter(
                             new OutputStreamWriter(ds.getOutputStream(), StandardCharsets.UTF_8), true)) {
 
-                // 5. Access the physical directory assigned to this specific user
+                // 5. גישה לתיקייה הפיזית של המשתמש הנוכחי
                 File dir = new File(rootDir + currentUserDir);
 
-                // 6. Verify the directory exists and iterate through the files
+                // 6. מעבר על הקבצים ושליחתם בפורמט לינוקס סטנדרטי של שרתי FTP
                 if (dir.exists() && dir.isDirectory()) {
                     File[] files = dir.listFiles();
                     if (files != null) {
                         for (File f : files) {
-                            // Formatting the output in standard Unix-like FTP list format
-                            // Format: [Permissions] [Links] [Owner] [Group] [Size] [Date] [Name]
+                            // עיצוב השורה: הרשאות, בעלים, גודל, תאריך ושם הקובץ
                             String fileInfo = String.format("-rw-r--r-- 1 ftp ftp %d Jan 01 00:00 %s",
                                     f.length(), f.getName());
                             dw.println(fileInfo);
@@ -192,19 +226,23 @@ public class FtpClientHandler implements Runnable {
                 }
             }
 
-            // 7. Inform the client that the data transfer finished successfully
+            // 7. עדכון הלקוח שהרשימה נשלחה במלואה
             writer.println("226 Directory send OK");
 
         } catch (Exception e) {
-            // Handle unexpected I/O errors and notify the client
             writer.println("550 Error retrieving directory listing");
             e.printStackTrace();
         } finally {
-            // 8. Always close the passive server after a transfer to free up the port
+            // 8. תמיד סוגרים את הפורט הפסיבי בסיום
             closePassive();
         }
     }
 
+    /**
+     * פונקציית ניקוי (Cleanup).
+     * סוגרת את ה-ServerSocket הפסיבי (ערוץ הנתונים) כדי לשחרר את הפורט במערכת ההפעלה,
+     * כך שיוכל לשמש לבקשות העלאה/הורדה עתידיות.
+     */
     private void closePassive() {
         try {
             if (passiveServer != null)

@@ -3,8 +3,6 @@ import com.urielt.my_final_proj.datamodels.User;
 import com.urielt.my_final_proj.services.UserService;
 import com.urielt.my_final_proj.utils.RouteHelper;
 import com.urielt.my_final_proj.utils.SessionHelper;
-import com.vaadin.flow.component.UI;
-import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.html.H1;
 import com.vaadin.flow.component.login.LoginForm;
 import com.vaadin.flow.component.notification.Notification;
@@ -20,7 +18,7 @@ public class LoginView extends VerticalLayout {
         
         login.addLoginListener(e -> {
             User user = userService.loginUser(e.getUsername(), e.getPassword());
-            if (user != null) {
+            if (user != null ) {
                 SessionHelper.setAttribute("loggedInUser", user);
                 Notification.show("התחברת בהצלחה!");
                 RouteHelper.navigateTo(HomeView.class);

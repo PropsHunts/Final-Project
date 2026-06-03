@@ -3,7 +3,6 @@ package com.urielt.my_final_proj.services;
 import org.apache.commons.net.ftp.FTP;
 import org.apache.commons.net.ftp.FTPClient;
 import org.apache.commons.net.ftp.FTPClientConfig;
-import org.apache.commons.net.ftp.FTPFile;
 import org.springframework.stereotype.Service;
 
 import com.urielt.my_final_proj.datamodels.FileDocument;
@@ -17,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 /**
@@ -93,10 +93,9 @@ public class FtpUiService {
             ftp = createClient(user);
             String remoteName = filename.endsWith(".lz78") ? filename : filename + ".lz78";
 
-            // יצירת "צינור" סופר פשוט שרק מחשב אחוזים
             InputStream progressStream = new InputStream() {
                 private long totalRead = 0;
-                private int lastPercent = 0; // שומר את האחוז האחרון שדיווחנו עליו
+                private int lastPercent = 0;
 
                 @Override
                 public int read() throws IOException {
@@ -116,13 +115,10 @@ public class FtpUiService {
 
                 private void updateProgress(int bytesRead) {
                     totalRead += bytesRead;
-                    // חישוב האחוז הנוכחי
                     int currentPercent = (int) ((totalRead * 100) / totalBytes);
-
-                    // מדווחים ל-UI *רק* אם האחוז התקדם למספר חדש
                     if (currentPercent > lastPercent) {
                         callback.onProgress(currentPercent);
-                        lastPercent = currentPercent; // מעדכנים את האחוז האחרון
+                        lastPercent = currentPercent;
                     }
                 }
             };
@@ -130,25 +126,32 @@ public class FtpUiService {
             try (OutputStream ftpOut = ftp.storeFileStream(remoteName)) {
                 if (ftpOut == null)
                     throw new IOException("Failed to open FTP data connection.");
-
-                // מעבירים ל-LZ78 את הצינור שיצרנו הרגע
                 lz78Service.compress(progressStream, ftpOut);
             }
 
             if (ftp.completePendingCommand()) {
-                FTPFile[] files = ftp.listFiles(remoteName);
-                long compressedSize = (files != null && files.length > 0) ? files[0].getSize() : 0;
-                System.out.println(filename);
+                // במקום לסמוך על פקודת LIST של ה-FTP, נקרא את הגודל ישירות מהכונן הקשיח
+                Path physicalPath = Paths.get("storage", user.getEmail(), remoteName);
+                long compressedSize = 0;
+
+                if (Files.exists(physicalPath)) {
+                    compressedSize = Files.size(physicalPath); // מביא את הגודל המדויק על הבייט!
+                }
+
                 FileDocument doc = fileRepository.findByOwnerEmailAndFileName(user.getEmail(), filename);
-                if (doc == null) doc = new FileDocument(user.getEmail(), filename, totalBytes);
+                if (doc == null)
+                    doc = new FileDocument(user.getEmail(), filename, totalBytes);
+
+                // מעדכנים ושומרים את הגודל האמיתי (הדחוס או התפוח)
                 doc.setCompressedSize(compressedSize);
+
                 fileRepository.save(doc);
                 user.setFileId(doc.getFileId());
                 userRepository.save(user);
 
-                callback.onComplete(true); // סיום בהצלחה
+                callback.onComplete(true);
             } else {
-                callback.onComplete(false); // כישלון בשרת
+                callback.onComplete(false);
             }
 
         } catch (Exception e) {
@@ -261,22 +264,30 @@ public class FtpUiService {
         List<UploadedFileDTO> list = new ArrayList<>();
         List<FileDocument> dbFiles = fileRepository.findByOwnerEmail(user.getEmail());
 
+        // מגדירים את הפורמט הרצוי: תאריך, רווח, ואז שעה מדוייקת ללא מילי-שניות
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
         for (FileDocument doc : dbFiles) {
-            // Calculate size: if smaller than 1KB, show 1KB
-            long sizeInKb = doc.getCompressedSize() / 1024;
-            String sizeStr = (sizeInKb > 0 ? sizeInKb : 1) + " KB";
+            long compKb = doc.getCompressedSize() / 1024;
+            long origKb = doc.getOriginalSize() / 1024;
+
+            String sizeStr = (compKb > 0 ? compKb : 1) + "KB (Orig: " + (origKb > 0 ? origKb : 1) + "KB)";
+
             String fileName = doc.getFileName();
             String fileType = "FILE";
             int lastDotIndex = fileName.lastIndexOf('.');
-            // מוודאים שיש נקודה ושזו לא הנקודה האחרונה בשם (כדי למנוע חריגות)
             if (lastDotIndex > 0 && lastDotIndex < fileName.length() - 1) {
                 fileType = fileName.substring(lastDotIndex + 1).toUpperCase();
             }
+
+            // שימוש בפורמט שיצרנו במקום ב-toString() הרגיל
+            String formattedDate = doc.getUploadDate().format(formatter);
+
             list.add(new UploadedFileDTO(
                     doc.getFileName(),
                     sizeStr,
                     fileType,
-                    doc.getUploadDate().toString()));
+                    formattedDate)); // מכניסים את התאריך המעוצב לכאן
         }
         return list;
     }
@@ -307,5 +318,18 @@ public class FtpUiService {
             System.err.println("[ERROR] Failed to rename physical folder from " + oldEmail + " to " + newEmail);
             e.printStackTrace();
         }
+    }
+
+    public boolean hasAccessToFile(User user, String filename) {
+        // 1. הגנת Null בסיסית
+        if (user == null || user.getEmail() == null || filename == null) {
+            return false;
+        }
+
+        // 2. חיפוש מדויק במסד הנתונים לפי השילוב של אימייל המשתמש ושם הקובץ
+        FileDocument fileDoc = fileRepository.findByOwnerEmailAndFileName(user.getEmail(), filename);
+
+        // 3. אם מונגו מצא מסמך (הוא לא null) - הקובץ באמת שייך לו!
+        return fileDoc != null;
     }
 }

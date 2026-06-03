@@ -116,16 +116,29 @@ public class ProfileDialog extends Dialog {
         String newEmail = emailField.getValue();
         String newPassword = passwordField.getValue();
 
+        // 1. בדיקה האם שם המשתמש שונה, ואם כן - האם הוא כבר תפוס?
+        if (!newUsername.equals(originalUsername) && userService.isUsernameTaken(newUsername)) {
+            Notification.show("Username already taken. Please choose a different one.", 4000,
+                    Notification.Position.MIDDLE);
+            return; // עוצרים את השמירה!
+        }
+
+        // 2. בדיקה האם האימייל שונה, ואם כן - האם הוא כבר תפוס?
+        if (!newEmail.equals(originalEmail) && userService.isEmailTaken(newEmail)) {
+            Notification.show("Email is already in use by another account.", 4000, Notification.Position.MIDDLE);
+            return; // עוצרים את השמירה!
+        }
+
         // אם הוזנה סיסמה חדשה, נעדכן אותה בזיכרון (נשמר במסד אח"כ)
         if (!newPassword.isEmpty()) {
             user.setPassword(newPassword);
         }
 
-        // ניסיון שמירה מול ה-DB
+        // ניסיון שמירה מול ה-DB (עכשיו אנחנו בטוחים שהשם והאימייל פנויים!)
         boolean success = userService.updateProfile(user, newUsername, newEmail);
 
         if (success) {
-            // אם האימייל שונה, צריך לעדכן את כל הקבצים שלו בשרת
+            // אם האימייל שונה, צריך לעדכן את כל הקבצים שלו בשרת הפיזי
             if (!originalEmail.equalsIgnoreCase(newEmail)) {
                 ftpService.updateFilesOwnerEmail(originalEmail, newEmail);
             }
@@ -136,7 +149,8 @@ public class ProfileDialog extends Dialog {
                 onSuccessCallback.run();
             }
         } else {
-            Notification.show("Email is already in use by another account.", 4000, Notification.Position.MIDDLE);
+            // שגיאת שרת כללית (הבדיקות שלנו כבר עברו, אז זה כנראה ניתוק מה-DB)
+            Notification.show("Server error: Could not update profile.", 4000, Notification.Position.MIDDLE);
         }
     }
 }

@@ -1,6 +1,7 @@
 package com.urielt.my_final_proj.datamodels;
 
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -11,6 +12,7 @@ public class User {
 
     @Id
     private String email; // Unique identifier for the user
+    @Indexed(unique = true)
     private String username;
     private String password; // Plain text for now, should be hashed later
     private LocalDateTime createdAt; // Date the account was created

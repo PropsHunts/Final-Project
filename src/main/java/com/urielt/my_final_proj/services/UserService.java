@@ -1,12 +1,12 @@
 package com.urielt.my_final_proj.services;
 
-import java.util.ArrayList;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
 
 import com.urielt.my_final_proj.datamodels.User;
 import com.urielt.my_final_proj.repositories.UserRepository;
+import com.urielt.my_final_proj.utils.PasswordHelper;
 
 @Service
 public class UserService {
@@ -18,7 +18,7 @@ public class UserService {
 
     public boolean addUserToDB(User user) {
         // 1. validation
-        if (!userRepository.existsById(user.getUsername())) {
+        if (!userRepository.existsById(user.getEmail())) {
             // 2. send user to repository DB
             userRepository.save(user);
             return true;
@@ -27,28 +27,32 @@ public class UserService {
         return false;
     }
 
-    public User loginUser(String email, String password) {
-        return userRepository.findOneByUsernameAndPassword(email, password);
+    public boolean isUsernameTaken(String username) {
+        return userRepository.findByUsername(username) != null;
     }
 
-    public ArrayList<User> getAllUsers() {
-        return (ArrayList<User>) userRepository.findAll();
+    public boolean isEmailTaken(String email) {
+        return userRepository.findById(email).isPresent();
+    }
+
+    public User loginUser(String un, String pw) {
+        User usr = userRepository.findByUsername(un);
+        if (usr == null)  return null;
+        if (!PasswordHelper.getInstance().matches(pw, usr.getPassword())) return null;
+        return usr;
+        // return userRepository.findOneByUsernameAndPassword(un, pw);
+    }
+
+    public List<User> getAllUsers() {
+        return userRepository.findAll();
     }
 
     public List<User> getAllUsersLikeName(String un) {
         return userRepository.findByUsernameLike(un);
     }
 
-    public List<User> getAllUsersByName(String un) {
-        return userRepository.findByUsername(un);
-    }
-
-    public User getOneByUsernameAndPassword(String un, String pw) {
-        return userRepository.findOneByUsernameAndPassword(un, pw);
-    }
-
     public boolean deleteItem(User user) {
-        if (userRepository.findById(user.getUsername()) != null) {
+        if (userRepository.findById(user.getEmail()) != null) {
             userRepository.delete(user);
             return true;
         }

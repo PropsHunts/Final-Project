@@ -21,16 +21,24 @@ public class FileDownloadController {
         this.ftpService = ftpService;
     }
 
-    // שים לב: הורדנו את ה-{email} מהנתיב!
     @GetMapping("/download/{filename}")
     public void downloadFile(@PathVariable String filename, 
-                             HttpSession session, // שפרינג מזריק אוטומטית לכל בקשה
+                             HttpSession session, 
                              HttpServletResponse response) {
         try {
             User user = ((User)session.getAttribute("loggedInUser"));
             
+            // 1. בדיקת Authentication (האם מחובר בכלל?)
             if (user == null) {
-                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "connect for the authority to download");
+                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "You must be logged in to download files.");
+                return;
+            }
+
+            // 2. בדיקת Authorization (האם הקובץ שייך לו?)
+            // * הערה: עליך לממש את הפונקציה הזו ב-FtpUiService או לבדוק מול הרשימה שיש ב-User
+            if (!ftpService.hasAccessToFile(user, filename)) {
+                // מחזירים 403 Forbidden - גישה נדחתה!
+                response.sendError(HttpServletResponse.SC_FORBIDDEN, "Access denied! This file does not belong to you.");
                 return;
             }
 
